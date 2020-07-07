@@ -10,12 +10,12 @@ import (
 	"time"
 
 	"github.com/hashicorp/packer/packer"
-
 	"github.com/vmware/govmomi/find"
 	"github.com/vmware/govmomi/nfc"
 	"github.com/vmware/govmomi/object"
 	"github.com/vmware/govmomi/ovf"
 	"github.com/vmware/govmomi/property"
+	"github.com/vmware/govmomi/vapi/vcenter"
 	"github.com/vmware/govmomi/vim25/mo"
 	"github.com/vmware/govmomi/vim25/types"
 )
@@ -583,6 +583,50 @@ func (vm *VirtualMachine) CreateSnapshot(name string) error {
 
 func (vm *VirtualMachine) ConvertToTemplate() error {
 	return vm.vm.MarkAsTemplate(vm.driver.ctx)
+}
+
+func (vm *VirtualMachine) ImportToContentLibrary(template vcenter.Template) error {
+	l, err := vm.driver.FindContentLibrary(template.Library)
+	if err != nil {
+		return err
+	}
+	template.Library = l.library.ID
+	template.SourceVM = vm.vm.Reference().Value
+
+	placement := new(vcenter.Placement)
+	if template.Placement.Cluster != "" {
+		c, err := vm.driver.FindCluster(template.Placement.Cluster)
+		if err != nil {
+			return err
+		}
+		placement.Cluster = c.cluster.Reference().Value
+	}
+	if template.Placement.Folder != "" {
+		f, err := vm.driver.FindFolder(template.Placement.Folder)
+		if err != nil {
+			return err
+		}
+		placement.Folder = f.folder.Reference().Value
+	}
+	if template.Placement.Host != "" {
+		h, err := vm.driver.FindHost(template.Placement.Host)
+		if err != nil {
+			return err
+		}
+		placement.Host = h.host.Reference().Value
+	}
+	if template.Placement.ResourcePool != "" {
+		rp, err := vm.driver.FindResourcePool(template.Placement.Cluster, template.Placement.Host, template.Placement.ResourcePool)
+		if err != nil {
+			return err
+		}
+		placement.ResourcePool = rp.pool.Reference().Value
+	}
+	template.Placement = placement
+
+	vcm := vcenter.NewManager(vm.driver.restClient)
+	_, err = vcm.CreateTemplate(vm.driver.ctx, template)
+	return err
 }
 
 func (vm *VirtualMachine) GetDir() (string, error) {
